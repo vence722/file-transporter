@@ -35,6 +35,27 @@ func handleConn(conn net.Conn) {
 	clientReader := bufio.NewReader(conn)
 	clientWriter := bufio.NewWriter(conn)
 
+	// Read login type
+	loginType, err := clientReader.ReadByte()
+	if err != nil {
+		fmt.Println("[ERROR] Client login failed, disconnecting")
+		conn.Close()
+		return
+	}
+
+	if loginType == constants.LoginTypeFileReceiver {
+		handleFileReceiverConnection(clientReader, clientWriter, conn)
+	} else if loginType == constants.LoginTypeCommandLine {
+		handleCommandLineConnection(clientReader, clientWriter, conn)
+	} else {
+		fmt.Println("[ERROR] Login type", loginType, "is invalid, disconnecting")
+		conn.Close()
+		return
+	}
+
+}
+
+func handleFileReceiverConnection(clientReader *bufio.Reader, clientWriter *bufio.Writer, conn net.Conn) {
 	// Read username
 	username, err := clientReader.ReadString(constants.CommandDelimiter)
 	if err != nil {
@@ -46,13 +67,37 @@ func handleConn(conn net.Conn) {
 	username = username[:len(username)-1]
 
 	// Store username
-	if !userStore.AddUser(username) {
+	if !userStore.AddUser(username, conn) {
 		fmt.Println("[ERROR] Username already taken, disconnecting")
 		clientWriter.WriteString("username already taken" + string(constants.CommandDelimiter))
 		conn.Close()
 		return
 	} else {
 		fmt.Println("[INFO] User", username, "logged in")
+	}
+
+	// Send login success reply
+	clientWriter.WriteString("OK")
+	clientWriter.WriteByte(constants.CommandDelimiter)
+	clientWriter.Flush()
+}
+
+func handleCommandLineConnection(clientReader *bufio.Reader, clientWriter *bufio.Writer, conn net.Conn) {
+	// Read username
+	username, err := clientReader.ReadString(constants.CommandDelimiter)
+	if err != nil {
+		fmt.Println("[ERROR] Client login failed, disconnecting")
+		conn.Close()
+		return
+	}
+	// Trim delimiter
+	username = username[:len(username)-1]
+
+	// Check login status
+	if _, ok := userStore.GetUser(username); !ok {
+		fmt.Println("[ERROR] Client login failed, disconnecting")
+		conn.Close()
+		return
 	}
 
 	// Send login success reply

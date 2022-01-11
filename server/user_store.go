@@ -1,20 +1,32 @@
 package server
 
-import "sync"
+import (
+	"net"
+	"sync"
+)
 
 type UserStore struct {
-	users map[string]struct{}
+	users map[string]net.Conn
 	lock  *sync.Mutex
 }
 
-func (u *UserStore) AddUser(username string) bool {
+func (u *UserStore) AddUser(username string, conn net.Conn) bool {
 	u.lock.Lock()
 	defer u.lock.Unlock()
 	if _, ok := u.users[username]; ok {
 		return false
 	}
-	u.users[username] = struct{}{}
+	u.users[username] = conn
 	return true
+}
+
+func (u *UserStore) GetUser(username string) (net.Conn, bool) {
+	u.lock.Lock()
+	defer u.lock.Unlock()
+	if conn, ok := u.users[username]; ok {
+		return conn, ok
+	}
+	return nil, false
 }
 
 func (u *UserStore) RemoveUser(username string) bool {
@@ -38,5 +50,5 @@ func (u *UserStore) ListUsers() []string {
 }
 
 func NewUserStore() *UserStore {
-	return &UserStore{map[string]struct{}{}, &sync.Mutex{}}
+	return &UserStore{map[string]net.Conn{}, &sync.Mutex{}}
 }

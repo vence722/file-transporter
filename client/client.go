@@ -8,19 +8,74 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 )
 
 func StartFileTransporterClient(serverHostPort string, username string) error {
-	conn, err := net.Dial("tcp", serverHostPort)
+	// Create connection for receiving files
+	fileReceiverConn, err := net.Dial("tcp", serverHostPort)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
 
+	// Login file receiver
+	if err := loginFileReceiver(fileReceiverConn, username); err != nil {
+		return err
+	}
+	// Handle file receiver connection
+	go func() {
+		if err := handleFileReceiverConnection(fileReceiverConn, username); err != nil {
+			fmt.Println("[ERROR] Error from file receiver connection:", err.Error())
+		}
+	}()
+
+	// Create connection for command-line
+	cmdConn, err := net.Dial("tcp", serverHostPort)
+	if err != nil {
+		return err
+	}
+	return handleCommandLineConnection(cmdConn, fileReceiverConn, username)
+}
+
+func loginFileReceiver(conn net.Conn, username string) error {
 	serverReader := bufio.NewReader(conn)
 	serverWriter := bufio.NewWriter(conn)
 
-	// Login, send username
+	// Send login type
+	serverWriter.WriteByte(constants.LoginTypeFileReceiver)
+
+	// Send username
+	serverWriter.WriteString(username)
+	serverWriter.WriteByte(constants.CommandDelimiter)
+	serverWriter.Flush()
+
+	// Read server response
+	loginResp, err := serverReader.ReadString(constants.CommandDelimiter)
+	if err != nil {
+		return err
+	}
+	loginResp = loginResp[:len(loginResp)-1]
+	if "OK" != loginResp {
+		return errors.New("Non-OK login response: " + loginResp)
+	}
+
+	return nil
+}
+
+func handleFileReceiverConnection(conn net.Conn, username string) error {
+	for {
+		time.Sleep(1 * time.Second)
+	}
+}
+
+func handleCommandLineConnection(conn net.Conn, fileReceiverConn net.Conn, username string) error {
+	serverReader := bufio.NewReader(conn)
+	serverWriter := bufio.NewWriter(conn)
+
+	// Send login type
+	serverWriter.WriteByte(constants.LoginTypeCommandLine)
+
+	// Send username
 	serverWriter.WriteString(username)
 	serverWriter.WriteByte(constants.CommandDelimiter)
 	serverWriter.Flush()
@@ -48,13 +103,12 @@ func StartFileTransporterClient(serverHostPort string, username string) error {
 			}
 		case "2":
 		case "3":
-			handleLogout(conn, serverWriter)
+			handleLogout(conn, fileReceiverConn, serverWriter)
 			return nil
 		default:
 			fmt.Println("[ERROR] Invalid action", action)
 		}
 	}
-	return nil
 }
 
 func printMenu() {
@@ -88,9 +142,10 @@ func handleListOnlineUsers(serverReader *bufio.Reader, serverWriter *bufio.Write
 	return nil
 }
 
-func handleLogout(conn net.Conn, serverWriter *bufio.Writer) {
+func handleLogout(conn net.Conn, fileReceiverConn net.Conn, serverWriter *bufio.Writer) {
 	serverWriter.WriteByte(3)
 	serverWriter.Flush()
 	conn.Close()
+	fileReceiverConn.Close()
 	fmt.Println("[INFO] Logged out")
 }
