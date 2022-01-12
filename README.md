@@ -51,7 +51,7 @@ If you're the receiving client, you'll get notifications in the terminal:
 ```
 
 Last, input `3` for logout:
-```
+```shell
 [INFO] Logged out
 ```
 
