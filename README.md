@@ -27,4 +27,32 @@ Choose Action:
 (3) Logout
 Please input your action >>>
 ```
-Please follow the tips to send file to other users that logged in to this server.
+
+Input `1` to list all online users:
+```shell
+Online Users:
+test
+alice
+```
+
+Input `2` to send file to other online user. You need to input target username and file path in your local machine:
+```shell
+Input target username:
+alice
+Input file path:
+/path/to/your/file
+```
+Then just wait for the file to be sent!
+
+If you're the receiving client, you'll get notifications in the terminal:
+```shell
+[INFO] Start receiving file xxx
+[INFO] File xxx received successfully!
+```
+
+Last, input `3` for logout:
+```
+[INFO] Logged out
+```
+
+## Enjoy your file sharing experience!
