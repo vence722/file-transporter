@@ -69,7 +69,8 @@ func handleFileReceiverConnection(clientReader *bufio.Reader, clientWriter *bufi
 	// Store username
 	if !userStore.AddUser(username, conn) {
 		fmt.Println("[ERROR] Username already taken, disconnecting")
-		clientWriter.WriteString("username already taken" + string(constants.CommandDelimiter))
+		clientWriter.WriteString("username already taken")
+		clientWriter.WriteByte(constants.CommandDelimiter)
 		conn.Close()
 		return
 	} else {
@@ -115,14 +116,15 @@ func handleCommandLineConnection(clientReader *bufio.Reader, clientWriter *bufio
 			return
 		}
 		switch action {
-		case 1:
+		case constants.ActionListOnlineUsers:
 			fmt.Println("[INFO] User", username, "requires online user list")
 			usersList := userStore.ListUsers()
 			clientWriter.WriteString(strings.Join(usersList, constants.StringSeparator))
 			clientWriter.WriteByte(constants.CommandDelimiter)
 			clientWriter.Flush()
-		case 2:
-		case 3:
+		case constants.ActionSendFile:
+			handleSendFile()
+		case constants.ActionLogout:
 			fmt.Println("[INFO] User", username, "logged out")
 			conn.Close()
 			userStore.RemoveUser(username)
@@ -134,4 +136,8 @@ func handleCommandLineConnection(clientReader *bufio.Reader, clientWriter *bufio
 			return
 		}
 	}
+}
+
+func handleSendFile() {
+
 }

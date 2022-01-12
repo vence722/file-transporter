@@ -6,6 +6,7 @@ import (
 	"file-transporter/common/constants"
 	"file-transporter/common/utils"
 	"fmt"
+	"github.com/vence722/convert"
 	"net"
 	"strings"
 	"time"
@@ -97,12 +98,13 @@ func handleCommandLineConnection(conn net.Conn, fileReceiverConn net.Conn, usern
 		action := utils.ReadCliInput()
 		fmt.Println()
 		switch action {
-		case "1":
+		case convert.Int2Str(constants.ActionListOnlineUsers):
 			if err := handleListOnlineUsers(serverReader, serverWriter); err != nil {
 				fmt.Println("[ERROR] Failed to list online users:", err.Error())
 			}
-		case "2":
-		case "3":
+		case convert.Int2Str(constants.ActionSendFile):
+			handleSendFile(serverReader, serverWriter)
+		case convert.Int2Str(constants.ActionLogout):
 			handleLogout(conn, fileReceiverConn, serverWriter)
 			return nil
 		default:
@@ -121,7 +123,7 @@ func printMenu() {
 
 func handleListOnlineUsers(serverReader *bufio.Reader, serverWriter *bufio.Writer) error {
 	// Send action
-	serverWriter.WriteByte(1)
+	serverWriter.WriteByte(constants.ActionListOnlineUsers)
 	serverWriter.Flush()
 
 	// Read response
@@ -142,8 +144,56 @@ func handleListOnlineUsers(serverReader *bufio.Reader, serverWriter *bufio.Write
 	return nil
 }
 
+func handleSendFile(serverReader *bufio.Reader, serverWriter *bufio.Writer) {
+	//// Read user input
+	//fmt.Println("Input target username:")
+	//targetUsername := utils.ReadCliInput()
+	//fmt.Println("Input file path:")
+	//filePath := utils.ReadCliInput()
+	//var fileSize int64
+	//if fi, err := os.Stat(filePath); err != nil {
+	//	fmt.Println("File path is not valid, command will end")
+	//	return
+	//} else if fi.IsDir() {
+	//	fmt.Println("File path is a directory, and a file is expected, command will end")
+	//	return
+	//} else {
+	//	fileSize = fi.Size()
+	//}
+	//fileToSend, err := os.Open(filePath)
+	//if err != nil {
+	//	fmt.Println("Failed to open file:", err.Error())
+	//	return
+	//}
+	//
+	//// Send action
+	//serverWriter.WriteByte(constants.ActionSendFile)
+	//
+	//// Send filename
+	//serverWriter.WriteString(fileToSend.Name())
+	//serverWriter.WriteByte(constants.CommandDelimiter)
+	//
+	//// Send file size
+	//fileSizeBuf := make([]byte, 8)
+	//binary.PutVarint(fileSizeBuf, fileSize)
+	//serverWriter.Write(fileSizeBuf)
+	//serverWriter.Flush()
+	//
+	//// Read response
+	//resp, err := serverReader.ReadString(constants.CommandDelimiter)
+	//if err != nil {
+	//	fmt.Println("Failed to send action:", err.Error())
+	//	return
+	//}
+	//resp = resp[:len(resp)-1]
+	//if "OK" != resp {
+	//	fmt.Println("Non-OK login response:", resp)
+	//	return
+	//}
+}
+
 func handleLogout(conn net.Conn, fileReceiverConn net.Conn, serverWriter *bufio.Writer) {
-	serverWriter.WriteByte(3)
+	serverWriter.WriteByte(constants.ActionLogout)
 	serverWriter.Flush()
 	conn.Close()
 	fileReceiverConn.Close()
