@@ -2,12 +2,15 @@ package client
 
 import (
 	"bufio"
+	"encoding/binary"
 	"errors"
 	"file-transporter/common/constants"
 	"file-transporter/common/utils"
 	"fmt"
 	"github.com/vence722/convert"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -56,7 +59,7 @@ func loginFileReceiver(conn net.Conn, username string) error {
 		return err
 	}
 	loginResp = loginResp[:len(loginResp)-1]
-	if "OK" != loginResp {
+	if constants.ResponseOK != loginResp {
 		return errors.New("Non-OK login response: " + loginResp)
 	}
 
@@ -87,7 +90,7 @@ func handleCommandLineConnection(conn net.Conn, fileReceiverConn net.Conn, usern
 		return err
 	}
 	loginResp = loginResp[:len(loginResp)-1]
-	if "OK" != loginResp {
+	if constants.ResponseOK != loginResp {
 		return errors.New("Non-OK login response: " + loginResp)
 	}
 
@@ -114,6 +117,7 @@ func handleCommandLineConnection(conn net.Conn, fileReceiverConn net.Conn, usern
 }
 
 func printMenu() {
+	fmt.Println()
 	fmt.Println("Choose Action:")
 	fmt.Println("(1) List online users")
 	fmt.Println("(2) Transfer file")
@@ -139,57 +143,60 @@ func handleListOnlineUsers(serverReader *bufio.Reader, serverWriter *bufio.Write
 	for _, user := range users {
 		fmt.Println(user)
 	}
-	fmt.Println()
 
 	return nil
 }
 
 func handleSendFile(serverReader *bufio.Reader, serverWriter *bufio.Writer) {
-	//// Read user input
-	//fmt.Println("Input target username:")
-	//targetUsername := utils.ReadCliInput()
-	//fmt.Println("Input file path:")
-	//filePath := utils.ReadCliInput()
-	//var fileSize int64
-	//if fi, err := os.Stat(filePath); err != nil {
-	//	fmt.Println("File path is not valid, command will end")
-	//	return
-	//} else if fi.IsDir() {
-	//	fmt.Println("File path is a directory, and a file is expected, command will end")
-	//	return
-	//} else {
-	//	fileSize = fi.Size()
-	//}
-	//fileToSend, err := os.Open(filePath)
-	//if err != nil {
-	//	fmt.Println("Failed to open file:", err.Error())
-	//	return
-	//}
-	//
-	//// Send action
-	//serverWriter.WriteByte(constants.ActionSendFile)
-	//
-	//// Send filename
-	//serverWriter.WriteString(fileToSend.Name())
-	//serverWriter.WriteByte(constants.CommandDelimiter)
-	//
-	//// Send file size
-	//fileSizeBuf := make([]byte, 8)
-	//binary.PutVarint(fileSizeBuf, fileSize)
-	//serverWriter.Write(fileSizeBuf)
-	//serverWriter.Flush()
-	//
-	//// Read response
-	//resp, err := serverReader.ReadString(constants.CommandDelimiter)
-	//if err != nil {
-	//	fmt.Println("Failed to send action:", err.Error())
-	//	return
-	//}
-	//resp = resp[:len(resp)-1]
-	//if "OK" != resp {
-	//	fmt.Println("Non-OK login response:", resp)
-	//	return
-	//}
+	// Read user input
+	fmt.Println("Input target username:")
+	targetUsername := utils.ReadCliInput()
+	fmt.Println("Input file path:")
+	filePath := utils.ReadCliInput()
+	var fileSize int64
+	if fi, err := os.Stat(filePath); err != nil {
+		fmt.Println("File path is not valid, command will end")
+		return
+	} else if fi.IsDir() {
+		fmt.Println("File path is a directory, and a file is expected, command will end")
+		return
+	} else {
+		fileSize = fi.Size()
+	}
+	fileToSend, err := os.Open(filePath)
+	if err != nil {
+		fmt.Println("Failed to open file:", err.Error())
+		return
+	}
+
+	// Send action
+	serverWriter.WriteByte(constants.ActionSendFile)
+
+	// Send target username
+	serverWriter.WriteString(targetUsername)
+	serverWriter.WriteByte(constants.CommandDelimiter)
+
+	// Send filename
+	serverWriter.WriteString(filepath.Base(fileToSend.Name()))
+	serverWriter.WriteByte(constants.CommandDelimiter)
+
+	// Send file size
+	fileSizeBuf := make([]byte, 8)
+	binary.PutVarint(fileSizeBuf, fileSize)
+	serverWriter.Write(fileSizeBuf)
+	serverWriter.Flush()
+
+	// Read response
+	resp, err := serverReader.ReadString(constants.CommandDelimiter)
+	if err != nil {
+		fmt.Println("Failed to send action:", err.Error())
+		return
+	}
+	resp = resp[:len(resp)-1]
+	if constants.ResponseOK != resp {
+		fmt.Println("Non-OK login response:", resp)
+		return
+	}
 }
 
 func handleLogout(conn net.Conn, fileReceiverConn net.Conn, serverWriter *bufio.Writer) {

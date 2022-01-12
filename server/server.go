@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"file-transporter/common/constants"
 	"fmt"
+	"io"
 	"net"
+	"reflect"
 	"strings"
+	"unsafe"
 )
 
 var (
@@ -78,7 +81,7 @@ func handleFileReceiverConnection(clientReader *bufio.Reader, clientWriter *bufi
 	}
 
 	// Send login success reply
-	clientWriter.WriteString("OK")
+	clientWriter.WriteString(constants.ResponseOK)
 	clientWriter.WriteByte(constants.CommandDelimiter)
 	clientWriter.Flush()
 }
@@ -102,7 +105,7 @@ func handleCommandLineConnection(clientReader *bufio.Reader, clientWriter *bufio
 	}
 
 	// Send login success reply
-	clientWriter.WriteString("OK")
+	clientWriter.WriteString(constants.ResponseOK)
 	clientWriter.WriteByte(constants.CommandDelimiter)
 	clientWriter.Flush()
 
@@ -123,7 +126,7 @@ func handleCommandLineConnection(clientReader *bufio.Reader, clientWriter *bufio
 			clientWriter.WriteByte(constants.CommandDelimiter)
 			clientWriter.Flush()
 		case constants.ActionSendFile:
-			handleSendFile()
+			handleSendFile(clientReader, clientWriter)
 		case constants.ActionLogout:
 			fmt.Println("[INFO] User", username, "logged out")
 			conn.Close()
@@ -138,6 +141,44 @@ func handleCommandLineConnection(clientReader *bufio.Reader, clientWriter *bufio
 	}
 }
 
-func handleSendFile() {
+func handleSendFile(clientReader *bufio.Reader, clientWriter *bufio.Writer) {
+	// Read target usernam
+	targetUsername, err := clientReader.ReadString(constants.CommandDelimiter)
+	if err != nil {
+		fmt.Println("[ERROR] Failed to read target username:", err.Error())
+		clientWriter.WriteString(constants.ResponseErrReadTargetUserName)
+		clientWriter.WriteByte(constants.CommandDelimiter)
+		clientWriter.Flush()
+		return
+	}
+	targetUsername = targetUsername[:len(targetUsername)-1]
 
+	// Read filename
+	fileName, err := clientReader.ReadString(constants.CommandDelimiter)
+	if err != nil {
+		fmt.Println("[ERROR] Failed to read file name:", err.Error())
+		clientWriter.WriteString(constants.ResponseErrReadFileName)
+		clientWriter.WriteByte(constants.CommandDelimiter)
+		clientWriter.Flush()
+		return
+	}
+	fileName = fileName[:len(fileName)-1]
+
+	// Read file size
+	fileSizeBuf := make([]byte, 8)
+	_, err = io.ReadFull(clientReader, fileSizeBuf)
+	if err != nil {
+		fmt.Println("[ERROR] Failed to read file size:", err.Error())
+		clientWriter.WriteString(constants.ResponseErrReadFileSize)
+		clientWriter.WriteByte(constants.CommandDelimiter)
+		clientWriter.Flush()
+		return
+	}
+	fileSize := *(*int64)(unsafe.Pointer((*reflect.SliceHeader)(unsafe.Pointer(&fileSizeBuf)).Data))
+
+	fmt.Println("targetUserName:", targetUsername, "fileName:", fileName, "fileSize:", fileSize)
+
+	clientWriter.WriteString(constants.ResponseOK)
+	clientWriter.WriteByte(constants.CommandDelimiter)
+	clientWriter.Flush()
 }
