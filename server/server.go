@@ -2,13 +2,13 @@ package server
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/binary"
 	"file-transporter/common/constants"
 	"fmt"
 	"io"
 	"net"
-	"reflect"
 	"strings"
-	"unsafe"
 )
 
 var (
@@ -126,7 +126,7 @@ func handleCommandLineConnection(clientReader *bufio.Reader, clientWriter *bufio
 			clientWriter.WriteByte(constants.CommandDelimiter)
 			clientWriter.Flush()
 		case constants.ActionSendFile:
-			handleSendFile(clientReader, clientWriter)
+			handleSendFile(clientReader, clientWriter, conn)
 		case constants.ActionLogout:
 			fmt.Println("[INFO] User", username, "logged out")
 			conn.Close()
@@ -141,7 +141,7 @@ func handleCommandLineConnection(clientReader *bufio.Reader, clientWriter *bufio
 	}
 }
 
-func handleSendFile(clientReader *bufio.Reader, clientWriter *bufio.Writer) {
+func handleSendFile(clientReader *bufio.Reader, clientWriter *bufio.Writer, conn net.Conn) {
 	// Read target usernam
 	targetUsername, err := clientReader.ReadString(constants.CommandDelimiter)
 	if err != nil {
@@ -174,11 +174,97 @@ func handleSendFile(clientReader *bufio.Reader, clientWriter *bufio.Writer) {
 		clientWriter.Flush()
 		return
 	}
-	fileSize := *(*int64)(unsafe.Pointer((*reflect.SliceHeader)(unsafe.Pointer(&fileSizeBuf)).Data))
+	fileSize, _ := binary.ReadVarint(bytes.NewReader(fileSizeBuf))
 
-	fmt.Println("targetUserName:", targetUsername, "fileName:", fileName, "fileSize:", fileSize)
+	fmt.Println("[INFO] targetUserName:", targetUsername, "fileName:", fileName, "fileSize:", fileSize)
+
+	// Check target user exists
+	targetConn, ok := userStore.GetUser(targetUsername)
+	if !ok {
+		fmt.Println("[ERROR] Target user", targetUsername, "doesn't exist")
+		clientWriter.WriteString(constants.ResponseErrUserNotExist)
+		clientWriter.WriteByte(constants.CommandDelimiter)
+		clientWriter.Flush()
+		return
+	}
+
+	// Send file info to target user
+	if !checkTargetReady(targetConn, fileName, fileSize) {
+		fmt.Println("[ERROR] Target user", targetUsername, "not ready")
+		clientWriter.WriteString(constants.ResponseErrUserNotReady)
+		clientWriter.WriteByte(constants.CommandDelimiter)
+		clientWriter.Flush()
+		return
+	}
+
+	// Send OK response to client
+	clientWriter.WriteString(constants.ResponseOK)
+	clientWriter.WriteByte(constants.CommandDelimiter)
+	clientWriter.Flush()
+
+	// Transfer file data
+	if err := transferFileData(conn, targetConn, fileSize); err != nil {
+		fmt.Println("[ERROR] Target user", targetUsername, "receiving failed")
+		clientWriter.WriteString(constants.ResponseErrUserReceiveFailed)
+		clientWriter.WriteByte(constants.CommandDelimiter)
+		clientWriter.Flush()
+		return
+	}
 
 	clientWriter.WriteString(constants.ResponseOK)
 	clientWriter.WriteByte(constants.CommandDelimiter)
 	clientWriter.Flush()
+}
+
+func checkTargetReady(conn net.Conn, fileName string, fileSize int64) bool {
+	clientReader := bufio.NewReader(conn)
+	clientWriter := bufio.NewWriter(conn)
+
+	// Write file name
+	clientWriter.WriteString(fileName)
+	clientWriter.WriteByte(constants.CommandDelimiter)
+
+	// Write file size
+	fileSizeBuf := make([]byte, 8)
+	binary.PutVarint(fileSizeBuf, fileSize)
+	clientWriter.Write(fileSizeBuf)
+	clientWriter.Flush()
+
+	// Read response
+	resp, err := clientReader.ReadString(constants.CommandDelimiter)
+	if err != nil {
+		fmt.Println("[ERROR] Failed to send action:", err.Error())
+		return false
+	}
+	resp = resp[:len(resp)-1]
+	if constants.ResponseOK != resp {
+		fmt.Println("Non-OK login response:", resp)
+		return false
+	}
+
+	return true
+}
+
+func transferFileData(fromConn net.Conn, toConn net.Conn, fileSize int64) error {
+	fromReader := bufio.NewReader(fromConn)
+	toWriter := bufio.NewWriter(toConn)
+
+	buf := make([]byte, constants.DefaultBufferSize)
+	byteTransferred := int64(0)
+	for {
+		bytesRead, err := fromReader.Read(buf)
+		if err != nil {
+			return err
+		}
+		_, err = toWriter.Write(buf[:bytesRead])
+		if err != nil {
+			return err
+		}
+		byteTransferred += int64(bytesRead)
+		if byteTransferred >= fileSize {
+			break
+		}
+	}
+
+	return nil
 }

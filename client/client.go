@@ -2,17 +2,18 @@ package client
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"file-transporter/common/constants"
 	"file-transporter/common/utils"
 	"fmt"
 	"github.com/vence722/convert"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 func StartFileTransporterClient(serverHostPort string, username string) error {
@@ -28,7 +29,7 @@ func StartFileTransporterClient(serverHostPort string, username string) error {
 	}
 	// Handle file receiver connection
 	go func() {
-		if err := handleFileReceiverConnection(fileReceiverConn, username); err != nil {
+		if err := handleFileReceiverConnection(fileReceiverConn); err != nil {
 			fmt.Println("[ERROR] Error from file receiver connection:", err.Error())
 		}
 	}()
@@ -66,9 +67,56 @@ func loginFileReceiver(conn net.Conn, username string) error {
 	return nil
 }
 
-func handleFileReceiverConnection(conn net.Conn, username string) error {
+func handleFileReceiverConnection(conn net.Conn) error {
+	serverReader := bufio.NewReader(conn)
+	serverWriter := bufio.NewWriter(conn)
 	for {
-		time.Sleep(1 * time.Second)
+		// Read filename
+		fileName, err := serverReader.ReadString(constants.CommandDelimiter)
+		if err != nil {
+			return err
+		}
+		fileName = fileName[:len(fileName)-1]
+
+		// Read file size
+		fileSizeBuf := make([]byte, 8)
+		_, err = io.ReadFull(serverReader, fileSizeBuf)
+		if err != nil {
+			return err
+		}
+		fileSize, _ := binary.ReadVarint(bytes.NewReader(fileSizeBuf))
+
+		// Create file (create to the same directory to the executable)
+		f, err := os.Create(fileName)
+		if err != nil {
+			return err
+		}
+
+		// Write OK response
+		serverWriter.WriteString(constants.ResponseOK)
+		serverWriter.WriteByte(constants.CommandDelimiter)
+		serverWriter.Flush()
+
+		fmt.Println("\n\n[INFO] Start receiving file", fileName)
+
+		// Receive file data
+		buf := make([]byte, constants.DefaultBufferSize)
+		bytesReceived := int64(0)
+		for {
+			bytesRead, err := serverReader.Read(buf)
+			if err != nil {
+				return err
+			}
+			_, err = f.Write(buf[:bytesRead])
+			if err != nil {
+				return err
+			}
+			bytesReceived += int64(bytesRead)
+			if bytesReceived >= fileSize {
+				break
+			}
+		}
+		fmt.Println("\n\n[INFO] File", fileName, "received successfully!")
 	}
 }
 
@@ -110,6 +158,8 @@ func handleCommandLineConnection(conn net.Conn, fileReceiverConn net.Conn, usern
 		case convert.Int2Str(constants.ActionLogout):
 			handleLogout(conn, fileReceiverConn, serverWriter)
 			return nil
+		case "":
+			continue
 		default:
 			fmt.Println("[ERROR] Invalid action", action)
 		}
@@ -155,17 +205,17 @@ func handleSendFile(serverReader *bufio.Reader, serverWriter *bufio.Writer) {
 	filePath := utils.ReadCliInput()
 	var fileSize int64
 	if fi, err := os.Stat(filePath); err != nil {
-		fmt.Println("File path is not valid, command will end")
+		fmt.Println("[ERROR] File path is not valid, command will end")
 		return
 	} else if fi.IsDir() {
-		fmt.Println("File path is a directory, and a file is expected, command will end")
+		fmt.Println("[ERROR] File path is a directory, and a file is expected, command will end")
 		return
 	} else {
 		fileSize = fi.Size()
 	}
 	fileToSend, err := os.Open(filePath)
 	if err != nil {
-		fmt.Println("Failed to open file:", err.Error())
+		fmt.Println("[ERROR] Failed to open file:", err.Error())
 		return
 	}
 
@@ -189,14 +239,38 @@ func handleSendFile(serverReader *bufio.Reader, serverWriter *bufio.Writer) {
 	// Read response
 	resp, err := serverReader.ReadString(constants.CommandDelimiter)
 	if err != nil {
-		fmt.Println("Failed to send action:", err.Error())
+		fmt.Println("[ERROR] Failed to send action:", err.Error())
 		return
 	}
 	resp = resp[:len(resp)-1]
 	if constants.ResponseOK != resp {
-		fmt.Println("Non-OK login response:", resp)
+		fmt.Println("[ERROR] Non-OK login response:", resp)
 		return
 	}
+
+	fmt.Println("[INFO] Start sending file", filepath.Base(fileToSend.Name()))
+
+	// Send file
+	buf := make([]byte, constants.DefaultBufferSize)
+	bytesTransferred := int64(0)
+	for {
+		bytesRead, err := fileToSend.Read(buf)
+		if err != nil {
+			fmt.Println("[ERROR] Failed to read file:", err.Error())
+			return
+		}
+		_, err = serverWriter.Write(buf[:bytesRead])
+		if err != nil {
+			fmt.Println("[ERROR] Failed to write file to server:", err.Error())
+			return
+		}
+		bytesTransferred += int64(bytesRead)
+		if bytesTransferred >= fileSize {
+			break
+		}
+	}
+
+	fmt.Println("[INFO] File", filepath.Base(fileToSend.Name()), "is sent successfully!")
 }
 
 func handleLogout(conn net.Conn, fileReceiverConn net.Conn, serverWriter *bufio.Writer) {
