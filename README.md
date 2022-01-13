@@ -2,6 +2,7 @@
 A very light-weight file sharing platform, including server and client
 
 ## Installation
+Require go version >= 1.17
 ```shell
 git clone https://github.com/vence722/file-transporter.git
 cd file-transporter
